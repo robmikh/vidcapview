@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use windows::{core::{Result, Array, GUID, ComInterface}, Win32::{System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize}, Media::MediaFoundation::{MFStartup, MF_VERSION, MFSTARTUP_FULL, MFCreateAttributes, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID, MFEnumDeviceSources, IMFActivate, IMFAttributes, MF_E_ATTRIBUTENOTFOUND, MFT_FRIENDLY_NAME_Attribute, IMFMediaSource, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME}}};
 
 fn main() -> Result<()> {
@@ -22,15 +24,60 @@ fn main() -> Result<()> {
         MFEnumDeviceSources(&attributes, &mut data, &mut len)?;
         Array::<IMFActivate>::from_raw_parts(data as _, len)
     };
+    let sources: Vec<IMFActivate> = sources.as_slice().iter().map(|source| source.as_ref().unwrap().clone()).collect();
 
-    for source in sources.as_slice() {
-        let source = source.as_ref().unwrap();
-        //let source: IMFMediaSource = unsafe { source.ActivateObject()? };
-        let display_name = get_friendly_name(source)?.unwrap_or("Unknown".to_owned());
-        println!("{}", display_name);
+    if sources.is_empty() {
+        println!("No video capture devices found!");
+    } else {
+        if let Some(source) = select_source(&sources)? {
+            let display_name = get_friendly_name(&source)?.unwrap_or("Unknown".to_owned());
+            println!("Using {}...", display_name);
+
+            
+        } else {
+            // Do nothing
+        }
     }
 
     Ok(())
+}
+
+fn select_source(
+    sources: &[IMFActivate],
+) -> Result<Option<IMFActivate>> {
+    for (i, source) in sources.iter().enumerate() {
+        let display_name = get_friendly_name(source)?.unwrap_or("Unknown".to_owned());
+        println!("{:>3} - {}", i, display_name);
+    }
+    let index: usize;
+        loop {
+            print!("Please make a selection (q to quit): ");
+            std::io::stdout().flush().unwrap();
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            if input.to_lowercase().contains("q") {
+                return Ok(None);
+            }
+            let input = input.trim();
+            let selection: Option<usize> = match input.parse::<usize>() {
+                Ok(selection) => {
+                    if selection < sources.len() {
+                        Some(selection)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(selection) = selection {
+                index = selection;
+                break;
+            } else {
+                println!("Invalid input, '{}'!", input);
+                continue;
+            };
+        }
+        Ok(Some(sources[index].clone()))
 }
 
 fn get_friendly_name<T: ComInterface>(
