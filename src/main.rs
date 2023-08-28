@@ -142,6 +142,7 @@ fn enum_formats(media_source: &IMFMediaSource) -> Result<()> {
     Ok(())
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/medfound/media-type-debugging-code
 fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
     let count = unsafe { media_type.GetCount()? };
 
