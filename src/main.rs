@@ -1,7 +1,13 @@
+mod window;
+mod dispatcher_queue;
+mod app;
+mod handle;
+
 use std::io::Write;
 
+use dispatcher_queue::{shutdown_dispatcher_queue_controller_and_wait, create_dispatcher_queue_controller_for_current_thread};
 use windows::{
-    core::{Array, ComInterface, Result, GUID},
+    core::{Array, ComInterface, Result, GUID, implement, imp::E_NOINTERFACE},
     Win32::{
         Foundation::BOOL,
         Media::MediaFoundation::{
@@ -51,21 +57,25 @@ use windows::{
             MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SAMPLE_SIZE, MF_MT_SOURCE_CONTENT_HINT, MF_MT_SUBTYPE,
             MF_MT_TRANSFER_FUNCTION, MF_MT_USER_DATA, MF_MT_VIDEO_CHROMA_SITING,
             MF_MT_VIDEO_LIGHTING, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES,
-            MF_MT_WRAPPED_TYPE, MF_MT_YUV_MATRIX, MF_VERSION,
+            MF_MT_WRAPPED_TYPE, MF_MT_YUV_MATRIX, MF_VERSION, IMFGetService, IMFGetService_Impl, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE,
         },
         System::{
             Com::StructuredStorage::{PropVariantClear, PROPVARIANT},
             Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
-            WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
-        },
-    },
+            WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
+        }, UI::WindowsAndMessaging::{GetMessageW, TranslateMessage, DispatchMessageW, MSG},
+    }, Media::{Core::{MediaSource, IMediaSource, IMediaSource_Impl}, Playback::{MediaPlaybackItem, MediaPlayer}}, UI::{Composition::Compositor, Color}, Foundation::Numerics::Vector2,
 };
+
+use crate::{app::App, window::Window};
 
 fn main() -> Result<()> {
     unsafe {
-        RoInitialize(RO_INIT_MULTITHREADED)?;
+        RoInitialize(RO_INIT_SINGLETHREADED)?;
     }
     unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL)? }
+
+    let controller = create_dispatcher_queue_controller_for_current_thread()?;
 
     let attributes = unsafe {
         let mut attributes = None;
@@ -92,6 +102,8 @@ fn main() -> Result<()> {
         .map(|source| source.as_ref().unwrap().clone())
         .collect();
 
+    let mut message = MSG::default();
+
     if sources.is_empty() {
         println!("No video capture devices found!");
     } else {
@@ -103,13 +115,71 @@ fn main() -> Result<()> {
             let media_source: IMFMediaSource = unsafe { source.ActivateObject()? };
 
             // Enumerate supported formats
-            enum_formats(&media_source)?;
+            //enum_formats(&media_source)?;
+            let custom_source: IMediaSource = CustomSource(media_source).into();
+            let winrt_media_source = MediaSource::CreateFromIMediaSource(&custom_source)?;
+            let item = MediaPlaybackItem::Create(&winrt_media_source)?;
+
+            let media_player = MediaPlayer::new()?;
+            media_player.SetSource(&item)?;
+
+            let compositor = Compositor::new()?;
+            let root = compositor.CreateSpriteVisual()?;
+            root.SetRelativeSizeAdjustment(Vector2::new(1.0, 1.0))?;
+            root.SetBrush(&compositor.CreateColorBrushWithColor(Color { A: 255, R: 0, G: 0, B: 0 })?)?;
+
+            let media_surface = media_player.GetSurface(&compositor)?;
+
+            let content_visual = compositor.CreateSpriteVisual()?;
+            content_visual.SetRelativeSizeAdjustment(Vector2::new(1.0, 1.0))?;
+            let content_brush = compositor.CreateSurfaceBrush()?;
+            content_brush.SetSurface(&media_surface.CompositionSurface()?);
+            content_visual.SetBrush(&content_brush)?;
+            root.Children()?.InsertAtTop(&content_visual)?;
+
+            let app = App::new();
+            let window = Window::new(&display_name, 800, 600, app)?;
+            let target = window.create_window_target(&compositor, false)?;
+            target.SetRoot(&root)?;
+
+            media_player.Play()?;
+
+            unsafe {
+                while GetMessageW(&mut message, None, 0, 0).into() {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
         } else {
             // Do nothing
         }
     }
 
+    let _result =
+        shutdown_dispatcher_queue_controller_and_wait(&controller, message.wParam.0 as i32)?;
+
     Ok(())
+}
+
+#[implement(IMediaSource, IMFGetService)]
+struct CustomSource(pub IMFMediaSource);
+
+impl IMediaSource_Impl for CustomSource {}
+impl IMFGetService_Impl for CustomSource {
+    fn GetService(&self, guidservice: *const GUID, riid: *const GUID, ppvobject: *mut *mut std::ffi::c_void) ->  Result<()> {
+        let service_guid = unsafe { *guidservice };
+        if service_guid == MF_MEDIASOURCE_SERVICE  {
+            let riid = unsafe { *riid };
+            if riid == IMFMediaSource::IID {
+                unsafe { *ppvobject = std::mem::transmute(self.0.clone()) };
+            } else {
+                return Err(E_NOINTERFACE.into());
+            }
+        } else {
+            return Err(MF_E_UNSUPPORTED_SERVICE.into());
+        }
+        Ok(())
+    }
 }
 
 // https://learn.microsoft.com/en-us/windows/win32/medfound/how-to-set-the-video-capture-format
