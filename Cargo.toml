@@ -33,5 +33,7 @@ features = [
     "Win32_System_WinRT_Graphics_Capture",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant"
 ]
 
