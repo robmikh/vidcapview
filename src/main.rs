@@ -1,42 +1,51 @@
-mod window;
-mod dispatcher_queue;
 mod app;
+mod dispatcher_queue;
 mod handle;
+mod window;
 
 use std::io::Write;
 
-use dispatcher_queue::{shutdown_dispatcher_queue_controller_and_wait, create_dispatcher_queue_controller_for_current_thread};
+use dispatcher_queue::{
+    create_dispatcher_queue_controller_for_current_thread,
+    shutdown_dispatcher_queue_controller_and_wait,
+};
 use windows::{
-    core::{Array, ComInterface, Result, GUID, implement, imp::E_NOINTERFACE},
+    core::{imp::E_NOINTERFACE, implement, Array, ComInterface, Result, GUID},
+    Foundation::Numerics::Vector2,
+    Media::{
+        Core::{IMediaSource, IMediaSource_Impl, MediaSource},
+        Playback::{MediaPlaybackItem, MediaPlayer},
+    },
     Win32::{
         Foundation::BOOL,
         Media::MediaFoundation::{
-            FORMAT_VideoInfo, FORMAT_VideoInfo2, IMFActivate, IMFAttributes, IMFMediaSource,
-            IMFMediaType, MFAudioFormat_AAC, MFAudioFormat_ADTS, MFAudioFormat_DRM,
-            MFAudioFormat_DTS, MFAudioFormat_Dolby_AC3_SPDIF, MFAudioFormat_Float,
-            MFAudioFormat_MP3, MFAudioFormat_MPEG, MFAudioFormat_MSP1, MFAudioFormat_PCM,
-            MFAudioFormat_WMASPDIF, MFAudioFormat_WMAudioV8, MFAudioFormat_WMAudioV9,
-            MFAudioFormat_WMAudio_Lossless, MFCreateAttributes, MFEnumDeviceSources,
-            MFMediaType_Audio, MFMediaType_Binary, MFMediaType_FileTransfer, MFMediaType_HTML,
-            MFMediaType_Image, MFMediaType_Protected, MFMediaType_SAMI, MFMediaType_Script,
-            MFMediaType_Video, MFStartup, MFVideoFormat_AI44, MFVideoFormat_ARGB32,
-            MFVideoFormat_AYUV, MFVideoFormat_DV25, MFVideoFormat_DV50, MFVideoFormat_DVH1,
-            MFVideoFormat_DVSD, MFVideoFormat_DVSL, MFVideoFormat_H264, MFVideoFormat_I420,
-            MFVideoFormat_IYUV, MFVideoFormat_M4S2, MFVideoFormat_MJPG, MFVideoFormat_MP43,
-            MFVideoFormat_MP4S, MFVideoFormat_MP4V, MFVideoFormat_MPG1, MFVideoFormat_MSS1,
-            MFVideoFormat_MSS2, MFVideoFormat_NV11, MFVideoFormat_NV12, MFVideoFormat_P010,
-            MFVideoFormat_P016, MFVideoFormat_P210, MFVideoFormat_P216, MFVideoFormat_RGB24,
-            MFVideoFormat_RGB32, MFVideoFormat_RGB555, MFVideoFormat_RGB565, MFVideoFormat_RGB8,
-            MFVideoFormat_UYVY, MFVideoFormat_WMV1, MFVideoFormat_WMV2, MFVideoFormat_WMV3,
-            MFVideoFormat_WVC1, MFVideoFormat_Y210, MFVideoFormat_Y216, MFVideoFormat_Y410,
-            MFVideoFormat_Y416, MFVideoFormat_Y41P, MFVideoFormat_Y41T, MFVideoFormat_YUY2,
-            MFVideoFormat_YV12, MFVideoFormat_YVYU, MFVideoFormat_v210, MFVideoFormat_v410,
-            MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+            FORMAT_VideoInfo, FORMAT_VideoInfo2, IMFActivate, IMFAttributes, IMFGetService,
+            IMFGetService_Impl, IMFMediaSource, IMFMediaType, MFAudioFormat_AAC,
+            MFAudioFormat_ADTS, MFAudioFormat_DRM, MFAudioFormat_DTS,
+            MFAudioFormat_Dolby_AC3_SPDIF, MFAudioFormat_Float, MFAudioFormat_MP3,
+            MFAudioFormat_MPEG, MFAudioFormat_MSP1, MFAudioFormat_PCM, MFAudioFormat_WMASPDIF,
+            MFAudioFormat_WMAudioV8, MFAudioFormat_WMAudioV9, MFAudioFormat_WMAudio_Lossless,
+            MFCreateAttributes, MFEnumDeviceSources, MFMediaType_Audio, MFMediaType_Binary,
+            MFMediaType_FileTransfer, MFMediaType_HTML, MFMediaType_Image, MFMediaType_Protected,
+            MFMediaType_SAMI, MFMediaType_Script, MFMediaType_Video, MFStartup, MFVideoFormat_AI44,
+            MFVideoFormat_ARGB32, MFVideoFormat_AYUV, MFVideoFormat_DV25, MFVideoFormat_DV50,
+            MFVideoFormat_DVH1, MFVideoFormat_DVSD, MFVideoFormat_DVSL, MFVideoFormat_H264,
+            MFVideoFormat_I420, MFVideoFormat_IYUV, MFVideoFormat_M4S2, MFVideoFormat_MJPG,
+            MFVideoFormat_MP43, MFVideoFormat_MP4S, MFVideoFormat_MP4V, MFVideoFormat_MPG1,
+            MFVideoFormat_MSS1, MFVideoFormat_MSS2, MFVideoFormat_NV11, MFVideoFormat_NV12,
+            MFVideoFormat_P010, MFVideoFormat_P016, MFVideoFormat_P210, MFVideoFormat_P216,
+            MFVideoFormat_RGB24, MFVideoFormat_RGB32, MFVideoFormat_RGB555, MFVideoFormat_RGB565,
+            MFVideoFormat_RGB8, MFVideoFormat_UYVY, MFVideoFormat_WMV1, MFVideoFormat_WMV2,
+            MFVideoFormat_WMV3, MFVideoFormat_WVC1, MFVideoFormat_Y210, MFVideoFormat_Y216,
+            MFVideoFormat_Y410, MFVideoFormat_Y416, MFVideoFormat_Y41P, MFVideoFormat_Y41T,
+            MFVideoFormat_YUY2, MFVideoFormat_YV12, MFVideoFormat_YVYU, MFVideoFormat_v210,
+            MFVideoFormat_v410, MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
             MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-            MF_E_ATTRIBUTENOTFOUND, MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION,
-            MF_MT_AAC_PAYLOAD_TYPE, MF_MT_ALL_SAMPLES_INDEPENDENT, MF_MT_AM_FORMAT_TYPE,
-            MF_MT_ARBITRARY_FORMAT, MF_MT_ARBITRARY_HEADER, MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
-            MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_CHANNEL_MASK,
+            MF_E_ATTRIBUTENOTFOUND, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE,
+            MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, MF_MT_AAC_PAYLOAD_TYPE,
+            MF_MT_ALL_SAMPLES_INDEPENDENT, MF_MT_AM_FORMAT_TYPE, MF_MT_ARBITRARY_FORMAT,
+            MF_MT_ARBITRARY_HEADER, MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE,
+            MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_CHANNEL_MASK,
             MF_MT_AUDIO_FLOAT_SAMPLES_PER_SECOND, MF_MT_AUDIO_FOLDDOWN_MATRIX,
             MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_PREFER_WAVEFORMATEX,
             MF_MT_AUDIO_SAMPLES_PER_BLOCK, MF_MT_AUDIO_SAMPLES_PER_SECOND,
@@ -57,14 +66,16 @@ use windows::{
             MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SAMPLE_SIZE, MF_MT_SOURCE_CONTENT_HINT, MF_MT_SUBTYPE,
             MF_MT_TRANSFER_FUNCTION, MF_MT_USER_DATA, MF_MT_VIDEO_CHROMA_SITING,
             MF_MT_VIDEO_LIGHTING, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES,
-            MF_MT_WRAPPED_TYPE, MF_MT_YUV_MATRIX, MF_VERSION, IMFGetService, IMFGetService_Impl, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE,
+            MF_MT_WRAPPED_TYPE, MF_MT_YUV_MATRIX, MF_VERSION,
         },
         System::{
             Com::StructuredStorage::{PropVariantClear, PROPVARIANT},
             Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
             WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
-        }, UI::WindowsAndMessaging::{GetMessageW, TranslateMessage, DispatchMessageW, MSG},
-    }, Media::{Core::{MediaSource, IMediaSource, IMediaSource_Impl}, Playback::{MediaPlaybackItem, MediaPlayer}}, UI::{Composition::Compositor, Color}, Foundation::Numerics::Vector2,
+        },
+        UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, TranslateMessage, MSG},
+    },
+    UI::{Color, Composition::Compositor},
 };
 
 use crate::{app::App, window::Window};
@@ -126,7 +137,12 @@ fn main() -> Result<()> {
             let compositor = Compositor::new()?;
             let root = compositor.CreateSpriteVisual()?;
             root.SetRelativeSizeAdjustment(Vector2::new(1.0, 1.0))?;
-            root.SetBrush(&compositor.CreateColorBrushWithColor(Color { A: 255, R: 0, G: 0, B: 0 })?)?;
+            root.SetBrush(&compositor.CreateColorBrushWithColor(Color {
+                A: 255,
+                R: 0,
+                G: 0,
+                B: 0,
+            })?)?;
 
             let media_surface = media_player.GetSurface(&compositor)?;
 
@@ -166,9 +182,14 @@ struct CustomSource(pub IMFMediaSource);
 
 impl IMediaSource_Impl for CustomSource {}
 impl IMFGetService_Impl for CustomSource {
-    fn GetService(&self, guidservice: *const GUID, riid: *const GUID, ppvobject: *mut *mut std::ffi::c_void) ->  Result<()> {
+    fn GetService(
+        &self,
+        guidservice: *const GUID,
+        riid: *const GUID,
+        ppvobject: *mut *mut std::ffi::c_void,
+    ) -> Result<()> {
         let service_guid = unsafe { *guidservice };
-        if service_guid == MF_MEDIASOURCE_SERVICE  {
+        if service_guid == MF_MEDIASOURCE_SERVICE {
             let riid = unsafe { *riid };
             if riid == IMFMediaSource::IID {
                 unsafe { *ppvobject = std::mem::transmute(self.0.clone()) };
