@@ -21,7 +21,7 @@ use windows::{
 use crate::{app::App, handle::CheckHandle};
 
 static REGISTER_WINDOW_CLASS: Once = Once::new();
-const WINDOW_CLASS_NAME: PCWSTR = w!("capenum.Window");
+const WINDOW_CLASS_NAME: PCWSTR = w!("vidcapview.Window");
 
 pub struct Window {
     handle: HWND,
