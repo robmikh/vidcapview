@@ -89,17 +89,6 @@ impl Window {
         Ok(result)
     }
 
-    pub fn resized(&mut self) -> Result<Option<SizeInt32>> {
-        let size = if self.resized {
-            self.resized = false;
-            let size = self.size()?;
-            Some(size)
-        } else {
-            None
-        };
-        Ok(size)
-    }
-
     pub fn size(&self) -> Result<SizeInt32> {
         get_window_size(self.handle)
     }
@@ -115,10 +104,6 @@ impl Window {
     ) -> Result<DesktopWindowTarget> {
         let compositor_desktop: ICompositorDesktopInterop = compositor.cast()?;
         unsafe { compositor_desktop.CreateDesktopWindowTarget(self.handle(), is_topmost) }
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.is_closed
     }
 
     fn message_handler(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
