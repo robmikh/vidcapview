@@ -55,6 +55,7 @@ use windows::{
         },
         System::{
             Com::StructuredStorage::PROPVARIANT,
+            Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
             WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
         },
     },
@@ -149,13 +150,6 @@ fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
     } else {
         let attributes: IMFAttributes = media_type.cast()?;
 
-        let format_type = unsafe { attributes.GetGUID(&MF_MT_AM_FORMAT_TYPE)? };
-        match format_type {
-            FORMAT_VideoInfo => println!("VideoInfo"),
-            FORMAT_VideoInfo2 => println!("VideoInfo2"),
-            _ => println!("Unknown ({:?})", format_type),
-        }
-
         for i in 0..count {
             log_attribute_value_by_index(&attributes, i)?;
         }
@@ -165,6 +159,7 @@ fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
 }
 
 fn log_attribute_value_by_index(attributes: &IMFAttributes, index: u32) -> Result<()> {
+    // TOOD: Properly free variant memory
     let (guid, variant) = unsafe {
         let mut guid = GUID::default();
         let mut variant = PROPVARIANT::default();
@@ -172,15 +167,64 @@ fn log_attribute_value_by_index(attributes: &IMFAttributes, index: u32) -> Resul
         (guid, variant)
     };
 
-    let guid_name = if let Some(guid_name) = get_guid_name_const(guid) {
-        guid_name.to_owned()
+    let guid_name = get_guid_name(guid);
+
+    let value_string = if let Some(value_string) = special_case_attribute_value(guid, &variant) {
+        value_string
     } else {
-        format!("{:?}", guid)
+        let vt_enum = unsafe { variant.Anonymous.Anonymous.vt };
+        match vt_enum {
+            VT_UI4 => format!("{}", unsafe { variant.Anonymous.Anonymous.Anonymous.ulVal }),
+            VT_UI8 => format!("{}", unsafe { variant.Anonymous.Anonymous.Anonymous.uhVal }),
+            VT_R8 => format!("{}", unsafe {
+                variant.Anonymous.Anonymous.Anonymous.dblVal
+            }),
+            VT_CLSID => {
+                let value_guid = unsafe { *variant.Anonymous.Anonymous.Anonymous.puuid };
+                format!("{}", get_guid_name(value_guid))
+            }
+            VT_LPWSTR => {
+                unsafe { variant.Anonymous.Anonymous.Anonymous.pwszVal.to_string() }.unwrap()
+            }
+            VT_VECTOR | VT_UI1 => "<<byte array>>".to_owned(),
+            VT_UNKNOWN => "IUnknown".to_owned(),
+            _ => format!("Unexpected attribute type (vt = {})", vt_enum.0),
+        }
     };
 
-    println!("{}", guid_name);
+    println!("{} - {}", guid_name, value_string);
 
     Ok(())
+}
+
+fn special_case_attribute_value(guid: GUID, var: &PROPVARIANT) -> Option<String> {
+    match guid {
+        MF_MT_FRAME_RATE
+        | MF_MT_FRAME_RATE_RANGE_MAX
+        | MF_MT_FRAME_RATE_RANGE_MIN
+        | MF_MT_FRAME_SIZE
+        | MF_MT_PIXEL_ASPECT_RATIO => {
+            // Attributes that contain two packed 32-bit values
+            let mut high = 0;
+            let mut low = 0;
+            unpack_2_u32_as_u64(
+                unsafe { var.Anonymous.Anonymous.Anonymous.uhVal },
+                &mut high,
+                &mut low,
+            );
+            Some(format!("{} x {}", high, low))
+        }
+        MF_MT_GEOMETRIC_APERTURE | MF_MT_MINIMUM_DISPLAY_APERTURE | MF_MT_PAN_SCAN_APERTURE => {
+            // TODO
+            Some("TODO".to_owned())
+        }
+        _ => None,
+    }
+}
+
+fn unpack_2_u32_as_u64(unpacked: u64, high: &mut u32, low: &mut u32) {
+    *high = (unpacked >> 32) as u32;
+    *low = unpacked as u32;
 }
 
 macro_rules! match_guid_constants {
@@ -192,6 +236,14 @@ macro_rules! match_guid_constants {
             _ => None
         }
     };
+}
+
+fn get_guid_name(guid: GUID) -> String {
+    if let Some(guid_name) = get_guid_name_const(guid) {
+        guid_name.to_owned()
+    } else {
+        format!("{:?}", guid)
+    }
 }
 
 fn get_guid_name_const(guid: GUID) -> Option<&'static str> {
@@ -337,6 +389,8 @@ fn get_guid_name_const(guid: GUID) -> Option<&'static str> {
         MFAudioFormat_MPEG,             //             WAVE_FORMAT_MPEG
         MFAudioFormat_AAC,              //              WAVE_FORMAT_MPEG_HEAAC
         MFAudioFormat_ADTS,             //             WAVE_FORMAT_MPEG_ADTS_AAC
+        FORMAT_VideoInfo,
+        FORMAT_VideoInfo2,
     )
 }
 
