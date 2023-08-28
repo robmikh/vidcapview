@@ -54,7 +54,7 @@ use windows::{
             MF_MT_WRAPPED_TYPE, MF_MT_YUV_MATRIX, MF_VERSION,
         },
         System::{
-            Com::StructuredStorage::PROPVARIANT,
+            Com::StructuredStorage::{PropVariantClear, PROPVARIANT},
             Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
             WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
         },
@@ -158,33 +158,44 @@ fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
     Ok(())
 }
 
+pub struct PropVariant(pub PROPVARIANT);
+
+impl Drop for PropVariant {
+    fn drop(&mut self) {
+        let _ = unsafe { PropVariantClear(&mut self.0) };
+    }
+}
+
 fn log_attribute_value_by_index(attributes: &IMFAttributes, index: u32) -> Result<()> {
-    // TOOD: Properly free variant memory
     let (guid, variant) = unsafe {
         let mut guid = GUID::default();
         let mut variant = PROPVARIANT::default();
         attributes.GetItemByIndex(index, &mut guid, Some(&mut variant))?;
-        (guid, variant)
+        (guid, PropVariant(variant))
     };
 
     let guid_name = get_guid_name(guid);
 
-    let value_string = if let Some(value_string) = special_case_attribute_value(guid, &variant) {
+    let value_string = if let Some(value_string) = special_case_attribute_value(guid, &variant.0) {
         value_string
     } else {
-        let vt_enum = unsafe { variant.Anonymous.Anonymous.vt };
+        let vt_enum = unsafe { variant.0.Anonymous.Anonymous.vt };
         match vt_enum {
-            VT_UI4 => format!("{}", unsafe { variant.Anonymous.Anonymous.Anonymous.ulVal }),
-            VT_UI8 => format!("{}", unsafe { variant.Anonymous.Anonymous.Anonymous.uhVal }),
+            VT_UI4 => format!("{}", unsafe {
+                variant.0.Anonymous.Anonymous.Anonymous.ulVal
+            }),
+            VT_UI8 => format!("{}", unsafe {
+                variant.0.Anonymous.Anonymous.Anonymous.uhVal
+            }),
             VT_R8 => format!("{}", unsafe {
-                variant.Anonymous.Anonymous.Anonymous.dblVal
+                variant.0.Anonymous.Anonymous.Anonymous.dblVal
             }),
             VT_CLSID => {
-                let value_guid = unsafe { *variant.Anonymous.Anonymous.Anonymous.puuid };
+                let value_guid = unsafe { *variant.0.Anonymous.Anonymous.Anonymous.puuid };
                 format!("{}", get_guid_name(value_guid))
             }
             VT_LPWSTR => {
-                unsafe { variant.Anonymous.Anonymous.Anonymous.pwszVal.to_string() }.unwrap()
+                unsafe { variant.0.Anonymous.Anonymous.Anonymous.pwszVal.to_string() }.unwrap()
             }
             VT_VECTOR | VT_UI1 => "<<byte array>>".to_owned(),
             VT_UNKNOWN => "IUnknown".to_owned(),
