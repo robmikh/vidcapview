@@ -12,8 +12,8 @@ use dispatcher_queue::{
 };
 use media::get_string_attribute;
 use windows::{
-    core::{Array, ComInterface, Result},
-    Foundation::Numerics::Vector2,
+    core::{Array, ComInterface, IInspectable, Result},
+    Foundation::{Numerics::Vector2, Size, TypedEventHandler},
     Media::{
         Core::{IMediaSource, MediaSource},
         Playback::{MediaPlaybackItem, MediaPlayer},
@@ -47,6 +47,7 @@ fn main() -> Result<()> {
     unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL)? }
 
     let controller = create_dispatcher_queue_controller_for_current_thread()?;
+    let compositor = Compositor::new()?;
 
     let attributes = unsafe {
         let mut attributes = None;
@@ -95,9 +96,19 @@ fn main() -> Result<()> {
             let item = MediaPlaybackItem::Create(&winrt_media_source)?;
 
             let media_player = MediaPlayer::new()?;
+            let media_surface = media_player.GetSurface(&compositor)?;
+            media_player.SourceChanged(&TypedEventHandler::<MediaPlayer, IInspectable>::new(
+                move |player, _| -> Result<()> {
+                    let player = player.as_ref().unwrap();
+                    let item: MediaPlaybackItem = player.Source()?.cast()?;
+                    let size = get_max_video_track_size(&item)?;
+                    player.SetSurfaceSize(size)?;
+                    Ok(())
+                },
+            ))?;
+
             media_player.SetSource(&item)?;
 
-            let compositor = Compositor::new()?;
             let root = compositor.CreateSpriteVisual()?;
             root.SetRelativeSizeAdjustment(Vector2::new(1.0, 1.0))?;
             root.SetBrush(&compositor.CreateColorBrushWithColor(Color {
@@ -106,8 +117,6 @@ fn main() -> Result<()> {
                 G: 0,
                 B: 0,
             })?)?;
-
-            let media_surface = media_player.GetSurface(&compositor)?;
 
             let content_visual = compositor.CreateSpriteVisual()?;
             content_visual.SetRelativeSizeAdjustment(Vector2::new(1.0, 1.0))?;
@@ -178,4 +187,21 @@ fn select_source(sources: &[IMFActivate]) -> Result<Option<IMFActivate>> {
 
 fn get_friendly_name<T: ComInterface>(activate: &T) -> Result<Option<String>> {
     get_string_attribute(&activate.cast()?, &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME)
+}
+
+fn get_max_video_track_size(item: &MediaPlaybackItem) -> Result<Size> {
+    let tracks = item.VideoTracks()?;
+    let mut size = Size::default();
+    for track in tracks {
+        let properties = track.GetEncodingProperties()?;
+        let width = properties.Width()? as f32;
+        let height = properties.Height()? as f32;
+        if size.Width < width {
+            size.Width = width;
+        }
+        if size.Height < height {
+            size.Height = height;
+        }
+    }
+    Ok(size)
 }
