@@ -196,7 +196,7 @@ impl Window {
         message: u32,
         wparam: WPARAM,
         lparam: LPARAM,
-    ) -> LRESULT {
+    ) -> LRESULT { unsafe {
         if message == WM_NCCREATE {
             let cs = lparam.0 as *const CREATESTRUCTW;
             let this = (*cs).lpCreateParams as *mut Self;
@@ -211,7 +211,7 @@ impl Window {
             }
         }
         DefWindowProcW(window, message, wparam, lparam)
-    }
+    }}
 }
 
 fn get_window_size(window_handle: HWND) -> Result<SizeInt32> {
