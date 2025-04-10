@@ -1,6 +1,7 @@
 mod app;
 mod dispatcher_queue;
 mod handle;
+mod hotkey;
 mod media;
 mod window;
 
@@ -10,6 +11,7 @@ use dispatcher_queue::{
     create_dispatcher_queue_controller_for_current_thread,
     shutdown_dispatcher_queue_controller_and_wait,
 };
+use hotkey::HotKey;
 use media::get_string_attribute;
 use windows::{
     core::{Array, ComInterface, IInspectable, Result},
@@ -26,7 +28,10 @@ use windows::{
             MF_VERSION,
         },
         System::WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
-        UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, TranslateMessage, MSG},
+        UI::{
+            Input::KeyboardAndMouse::{MOD_ALT, VK_RETURN},
+            WindowsAndMessaging::{DispatchMessageW, GetMessageW, TranslateMessage, MSG},
+        },
     },
     UI::{Color, Composition::Compositor},
 };
@@ -131,6 +136,8 @@ fn main() -> Result<()> {
             target.SetRoot(&root)?;
 
             media_player.Play()?;
+
+            let _hot_key = HotKey::new(window.handle(), MOD_ALT, VK_RETURN.0 as u32)?;
 
             unsafe {
                 while GetMessageW(&mut message, None, 0, 0).into() {

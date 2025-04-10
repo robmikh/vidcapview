@@ -6,13 +6,17 @@ use windows::{
     Graphics::SizeInt32,
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        },
         System::{LibraryLoader::GetModuleHandleW, WinRT::Composition::ICompositorDesktopInterop},
         UI::WindowsAndMessaging::{
             AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW,
-            LoadCursorW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW, ShowWindow,
-            CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, SW_SHOW, WM_DESTROY,
-            WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_NCCREATE, WM_RBUTTONDOWN, WM_SIZE, WM_SIZING,
-            WNDCLASSW, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW,
+            GetWindowRect, LoadCursorW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW,
+            SetWindowPos, ShowWindow, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, GWL_STYLE,
+            HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, SWP_SHOWWINDOW, SW_SHOW, WM_DESTROY,
+            WM_HOTKEY, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_NCCREATE, WM_RBUTTONDOWN, WM_SIZE,
+            WM_SIZING, WNDCLASSW, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW, WS_POPUP,
         },
     },
     UI::Composition::{Compositor, Desktop::DesktopWindowTarget},
@@ -28,6 +32,8 @@ pub struct Window {
     app: App,
     is_closed: bool,
     resized: bool,
+    is_fullscreen: bool,
+    last_rect: RECT,
 }
 
 impl Window {
@@ -65,6 +71,8 @@ impl Window {
             app,
             is_closed: false,
             resized: false,
+            is_fullscreen: false,
+            last_rect: RECT::default(),
         });
 
         let window = unsafe {
@@ -135,6 +143,48 @@ impl Window {
             }
             WM_RBUTTONDOWN => {
                 self.app.on_pointer_pressed(true, false).unwrap();
+            }
+            WM_HOTKEY => {
+                self.is_fullscreen = !self.is_fullscreen;
+                if self.is_fullscreen {
+                    unsafe { GetWindowRect(self.handle, &mut self.last_rect).unwrap() }
+
+                    unsafe {
+                        SetWindowLongPtrW(self.handle, GWL_STYLE, WS_POPUP.0 as isize);
+                    }
+
+                    let monitor =
+                        unsafe { MonitorFromWindow(self.handle, MONITOR_DEFAULTTONEAREST) };
+                    let mut monitor_info = MONITORINFO::default();
+                    monitor_info.cbSize = std::mem::size_of_val(&monitor_info) as u32;
+                    unsafe { GetMonitorInfoW(monitor, &mut monitor_info).ok().unwrap() }
+
+                    let x = monitor_info.rcMonitor.left;
+                    let y = monitor_info.rcMonitor.top;
+                    let cx = monitor_info.rcMonitor.right - x;
+                    let cy = monitor_info.rcMonitor.bottom - y;
+
+                    unsafe {
+                        SetWindowPos(self.handle, HWND_TOPMOST, x, y, cx, cy, SWP_SHOWWINDOW)
+                            .ok()
+                            .unwrap()
+                    }
+                } else {
+                    unsafe {
+                        SetWindowLongPtrW(self.handle, GWL_STYLE, WS_OVERLAPPEDWINDOW.0 as isize);
+                    }
+
+                    let x = self.last_rect.left;
+                    let y = self.last_rect.top;
+                    let cx = self.last_rect.right - x;
+                    let cy = self.last_rect.bottom - y;
+
+                    unsafe {
+                        SetWindowPos(self.handle, HWND_NOTOPMOST, x, y, cx, cy, SWP_SHOWWINDOW)
+                            .ok()
+                            .unwrap()
+                    }
+                }
             }
             _ => {}
         }
