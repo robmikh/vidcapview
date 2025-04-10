@@ -26,6 +26,6 @@ impl HotKey {
 
 impl Drop for HotKey {
     fn drop(&mut self) {
-        unsafe { UnregisterHotKey(Some(self.window), self.id).ok().unwrap() }
+        let _ = unsafe { UnregisterHotKey(Some(self.window), self.id) };
     }
 }
