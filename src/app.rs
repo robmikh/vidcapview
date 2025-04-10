@@ -1,4 +1,5 @@
-use windows::{core::Result, Foundation::Numerics::Vector2};
+use windows::core::Result;
+use windows_numerics::Vector2;
 
 pub struct App {}
 

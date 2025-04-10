@@ -1,28 +1,28 @@
 use std::sync::Once;
 
 use windows::{
-    core::{w, ComInterface, Result, HSTRING, PCWSTR},
-    Foundation::Numerics::Vector2,
     Graphics::SizeInt32,
+    UI::Composition::{Compositor, Desktop::DesktopWindowTarget},
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
         },
         System::{LibraryLoader::GetModuleHandleW, WinRT::Composition::ICompositorDesktopInterop},
         UI::WindowsAndMessaging::{
-            AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW,
-            GetWindowRect, LoadCursorW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW,
-            SetWindowPos, ShowWindow, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, GWL_STYLE,
-            HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, SWP_SHOWWINDOW, SW_SHOW, WM_DESTROY,
+            AdjustWindowRectEx, CREATESTRUCTW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
+            GWL_STYLE, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, GetWindowRect,
+            HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, LoadCursorW, PostQuitMessage, RegisterClassW,
+            SW_SHOW, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_DESTROY,
             WM_HOTKEY, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_NCCREATE, WM_RBUTTONDOWN, WM_SIZE,
             WM_SIZING, WNDCLASSW, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW, WS_POPUP,
         },
     },
-    UI::Composition::{Compositor, Desktop::DesktopWindowTarget},
+    core::{HSTRING, Interface, PCWSTR, Result, w},
 };
+use windows_numerics::Vector2;
 
-use crate::{app::App, handle::CheckHandle};
+use crate::app::App;
 
 static REGISTER_WINDOW_CLASS: Once = Once::new();
 const WINDOW_CLASS_NAME: PCWSTR = w!("vidcapview.Window");
@@ -67,7 +67,7 @@ impl Window {
         };
 
         let mut result = Box::new(Self {
-            handle: HWND(0),
+            handle: HWND(std::ptr::null_mut()),
             app,
             is_closed: false,
             resized: false,
@@ -87,12 +87,11 @@ impl Window {
                 adjusted_height,
                 None,
                 None,
-                instance,
+                Some(instance.into()),
                 Some(result.as_mut() as *mut _ as _),
-            )
-            .ok()?
+            )?
         };
-        unsafe { ShowWindow(window, SW_SHOW) };
+        let _ = unsafe { ShowWindow(window, SW_SHOW) };
 
         Ok(result)
     }
@@ -165,9 +164,17 @@ impl Window {
                     let cy = monitor_info.rcMonitor.bottom - y;
 
                     unsafe {
-                        SetWindowPos(self.handle, HWND_TOPMOST, x, y, cx, cy, SWP_SHOWWINDOW)
-                            .ok()
-                            .unwrap()
+                        SetWindowPos(
+                            self.handle,
+                            Some(HWND_TOPMOST),
+                            x,
+                            y,
+                            cx,
+                            cy,
+                            SWP_SHOWWINDOW,
+                        )
+                        .ok()
+                        .unwrap()
                     }
                 } else {
                     unsafe {
@@ -180,9 +187,17 @@ impl Window {
                     let cy = self.last_rect.bottom - y;
 
                     unsafe {
-                        SetWindowPos(self.handle, HWND_NOTOPMOST, x, y, cx, cy, SWP_SHOWWINDOW)
-                            .ok()
-                            .unwrap()
+                        SetWindowPos(
+                            self.handle,
+                            Some(HWND_NOTOPMOST),
+                            x,
+                            y,
+                            cx,
+                            cy,
+                            SWP_SHOWWINDOW,
+                        )
+                        .ok()
+                        .unwrap()
                     }
                 }
             }
@@ -196,22 +211,24 @@ impl Window {
         message: u32,
         wparam: WPARAM,
         lparam: LPARAM,
-    ) -> LRESULT { unsafe {
-        if message == WM_NCCREATE {
-            let cs = lparam.0 as *const CREATESTRUCTW;
-            let this = (*cs).lpCreateParams as *mut Self;
-            (*this).handle = window;
+    ) -> LRESULT {
+        unsafe {
+            if message == WM_NCCREATE {
+                let cs = lparam.0 as *const CREATESTRUCTW;
+                let this = (*cs).lpCreateParams as *mut Self;
+                (*this).handle = window;
 
-            SetWindowLongPtrW(window, GWLP_USERDATA, this as _);
-        } else {
-            let this = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Self;
+                SetWindowLongPtrW(window, GWLP_USERDATA, this as _);
+            } else {
+                let this = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Self;
 
-            if let Some(this) = this.as_mut() {
-                return this.message_handler(message, wparam, lparam);
+                if let Some(this) = this.as_mut() {
+                    return this.message_handler(message, wparam, lparam);
+                }
             }
+            DefWindowProcW(window, message, wparam, lparam)
         }
-        DefWindowProcW(window, message, wparam, lparam)
-    }}
+    }
 }
 
 fn get_window_size(window_handle: HWND) -> Result<SizeInt32> {

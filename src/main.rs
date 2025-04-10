@@ -1,6 +1,5 @@
 mod app;
 mod dispatcher_queue;
-mod handle;
 mod hotkey;
 mod media;
 mod window;
@@ -14,31 +13,31 @@ use dispatcher_queue::{
 use hotkey::HotKey;
 use media::get_string_attribute;
 use windows::{
-    core::{Array, ComInterface, IInspectable, Result},
-    Foundation::{Numerics::Vector2, Size, TypedEventHandler},
+    Foundation::{Size, TypedEventHandler},
     Media::{
         Core::{IMediaSource, MediaSource},
         Playback::{MediaPlaybackItem, MediaPlayer},
     },
+    UI::{Color, Composition::Compositor},
     Win32::{
         Media::MediaFoundation::{
-            IMFActivate, IMFMediaSource, MFCreateAttributes, MFEnumDeviceSources, MFStartup,
-            MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+            IMFActivate, IMFMediaSource, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
             MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-            MF_VERSION,
+            MF_VERSION, MFCreateAttributes, MFEnumDeviceSources, MFSTARTUP_FULL, MFStartup,
         },
-        System::WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
+        System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
         UI::{
             Input::KeyboardAndMouse::{MOD_ALT, VK_RETURN},
-            WindowsAndMessaging::{DispatchMessageW, GetMessageW, TranslateMessage, MSG},
+            WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, TranslateMessage},
         },
     },
-    UI::{Color, Composition::Compositor},
+    core::{Array, IInspectable, Interface, Result},
 };
+use windows_numerics::Vector2;
 
 use crate::{
     app::App,
-    media::{enum_formats, CustomSource},
+    media::{CustomSource, enum_formats},
     window::Window,
 };
 
@@ -141,7 +140,7 @@ fn main() -> Result<()> {
 
             unsafe {
                 while GetMessageW(&mut message, None, 0, 0).into() {
-                    TranslateMessage(&message);
+                    let _ = TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
             }
@@ -192,7 +191,7 @@ fn select_source(sources: &[IMFActivate]) -> Result<Option<IMFActivate>> {
     Ok(Some(sources[index].clone()))
 }
 
-fn get_friendly_name<T: ComInterface>(activate: &T) -> Result<Option<String>> {
+fn get_friendly_name<T: Interface>(activate: &T) -> Result<Option<String>> {
     get_string_attribute(&activate.cast()?, &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME)
 }
 

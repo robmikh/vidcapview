@@ -1,10 +1,9 @@
 mod workaround;
 
 use windows::{
-    core::{implement, ComInterface, Result, GUID},
     Media::Core::{IMediaSource, IMediaSource_Impl},
     Win32::{
-        Foundation::{BOOL, E_NOINTERFACE},
+        Foundation::E_NOINTERFACE,
         Media::MediaFoundation::{
             IMFAttributes, IMFGetService, IMFGetService_Impl, IMFMediaSource, IMFMediaType,
             MF_E_ATTRIBUTENOTFOUND, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE,
@@ -13,10 +12,11 @@ use windows::{
             MF_MT_PAN_SCAN_APERTURE, MF_MT_PIXEL_ASPECT_RATIO,
         },
         System::{
-            Com::StructuredStorage::{PropVariantClear, PROPVARIANT},
+            Com::StructuredStorage::{PROPVARIANT, PropVariantClear},
             Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
         },
     },
+    core::{BOOL, GUID, Interface, Result, implement},
 };
 
 use self::workaround::get_guid_name_const;
@@ -24,9 +24,9 @@ use self::workaround::get_guid_name_const;
 #[implement(IMediaSource, IMFGetService)]
 pub struct CustomSource(pub IMFMediaSource);
 
-impl IMediaSource_Impl for CustomSource {}
+impl IMediaSource_Impl for CustomSource_Impl {}
 #[allow(non_snake_case)]
-impl IMFGetService_Impl for CustomSource {
+impl IMFGetService_Impl for CustomSource_Impl {
     fn GetService(
         &self,
         guidservice: *const GUID,
