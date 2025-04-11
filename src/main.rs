@@ -1,4 +1,5 @@
 mod app;
+mod cli;
 mod dispatcher_queue;
 mod hotkey;
 mod media;
@@ -6,6 +7,8 @@ mod window;
 
 use std::io::Write;
 
+use clap::Parser;
+use cli::CliArgs;
 use dispatcher_queue::{
     create_dispatcher_queue_controller_for_current_thread,
     shutdown_dispatcher_queue_controller_and_wait,
@@ -45,8 +48,16 @@ use crate::{
 };
 
 fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    let debug_output = args.contains(&"--debug".to_owned());
+    // Handle /?
+    let args: Vec<_> = std::env::args().collect();
+    if args.contains(&"/?".to_owned()) || args.contains(&"-?".to_owned()) {
+        CliArgs::parse_from(["vidcapview.exe", "--help"]);
+        std::process::exit(0);
+    }
+
+    let args = CliArgs::parse();
+    let source_name = args.source.as_ref().map(|x| x.as_str());
+    let debug_output = args.debug;
 
     unsafe {
         RoInitialize(RO_INIT_SINGLETHREADED)?;
@@ -86,7 +97,7 @@ fn main() -> Result<()> {
     if sources.is_empty() {
         println!("No video capture devices found!");
     } else {
-        if let Some(source) = select_source(&sources)? {
+        if let Some(source) = select_source(&sources, source_name)? {
             let display_name = get_friendly_name(&source)?.unwrap_or("Unknown".to_owned());
             println!("Using {}...", display_name);
 
@@ -155,7 +166,14 @@ fn main() -> Result<()> {
                 SetThreadExecutionState(ES_CONTINUOUS);
             }
         } else {
-            // Do nothing
+            if let Some(source_name) = source_name {
+                println!(
+                    "Failed to find capture device with name \"{}\"!",
+                    source_name
+                );
+            } else {
+                // Do nothing
+            }
         }
     }
 
@@ -165,40 +183,54 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn select_source(sources: &[IMFActivate]) -> Result<Option<IMFActivate>> {
-    for (i, source) in sources.iter().enumerate() {
-        let display_name = get_friendly_name(source)?.unwrap_or("Unknown".to_owned());
-        println!("{:>3} - {}", i, display_name);
-    }
-    let index: usize;
-    loop {
-        print!("Please make a selection (q to quit): ");
-        std::io::stdout().flush().unwrap();
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-        if input.to_lowercase().contains("q") {
-            return Ok(None);
-        }
-        let input = input.trim();
-        let selection: Option<usize> = match input.parse::<usize>() {
-            Ok(selection) => {
-                if selection < sources.len() {
-                    Some(selection)
-                } else {
-                    None
+fn select_source(
+    sources: &[IMFActivate],
+    source_name: Option<&str>,
+) -> Result<Option<IMFActivate>> {
+    if let Some(source_name) = source_name {
+        for source in sources {
+            if let Some(display_name) = get_friendly_name(source)? {
+                if display_name.as_str() == source_name {
+                    return Ok(Some(source.clone()));
                 }
             }
-            _ => None,
-        };
-        if let Some(selection) = selection {
-            index = selection;
-            break;
-        } else {
-            println!("Invalid input, '{}'!", input);
-            continue;
-        };
+        }
+        Ok(None)
+    } else {
+        for (i, source) in sources.iter().enumerate() {
+            let display_name = get_friendly_name(source)?.unwrap_or("Unknown".to_owned());
+            println!("{:>3} - {}", i, display_name);
+        }
+        let index: usize;
+        loop {
+            print!("Please make a selection (q to quit): ");
+            std::io::stdout().flush().unwrap();
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            if input.to_lowercase().contains("q") {
+                return Ok(None);
+            }
+            let input = input.trim();
+            let selection: Option<usize> = match input.parse::<usize>() {
+                Ok(selection) => {
+                    if selection < sources.len() {
+                        Some(selection)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(selection) = selection {
+                index = selection;
+                break;
+            } else {
+                println!("Invalid input, '{}'!", input);
+                continue;
+            };
+        }
+        Ok(Some(sources[index].clone()))
     }
-    Ok(Some(sources[index].clone()))
 }
 
 fn get_friendly_name<T: Interface>(activate: &T) -> Result<Option<String>> {
