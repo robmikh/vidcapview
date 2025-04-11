@@ -25,7 +25,10 @@ use windows::{
             MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
             MF_VERSION, MFCreateAttributes, MFEnumDeviceSources, MFSTARTUP_FULL, MFStartup,
         },
-        System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
+        System::{
+            Power::{ES_CONTINUOUS, ES_DISPLAY_REQUIRED, SetThreadExecutionState},
+            WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
+        },
         UI::{
             Input::KeyboardAndMouse::{MOD_ALT, VK_RETURN},
             WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, TranslateMessage},
@@ -135,6 +138,9 @@ fn main() -> Result<()> {
             target.SetRoot(&root)?;
 
             media_player.Play()?;
+            unsafe {
+                SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+            }
 
             let _hot_key = HotKey::new(window.handle(), MOD_ALT, VK_RETURN.0 as u32)?;
 
@@ -143,6 +149,10 @@ fn main() -> Result<()> {
                     let _ = TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
+            }
+
+            unsafe {
+                SetThreadExecutionState(ES_CONTINUOUS);
             }
         } else {
             // Do nothing
