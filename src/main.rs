@@ -14,7 +14,7 @@ use dispatcher_queue::{
     shutdown_dispatcher_queue_controller_and_wait,
 };
 use hotkey::HotKey;
-use media::get_string_attribute;
+use media::{get_string_attribute, log_media_type, set_hdr_format_as_current};
 use windows::{
     Foundation::{Size, TypedEventHandler},
     Media::{
@@ -107,6 +107,16 @@ fn main() -> Result<()> {
             // Enumerate supported formats
             if debug_output {
                 enum_formats(&media_source)?;
+            }
+
+            // Find the highest resolution HDR format available
+            if args.hdr {
+                if let Some(media_type) = set_hdr_format_as_current(&media_source)? {
+                    println!("Selected format:");
+                    log_media_type(&media_type)?;
+                } else {
+                    println!("No known HDR formats found!");
+                }
             }
 
             let custom_source: IMediaSource = CustomSource(media_source).into();

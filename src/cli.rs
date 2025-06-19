@@ -7,6 +7,10 @@ pub struct CliArgs {
     #[clap(short, long)]
     pub source: Option<String>,
 
+    /// Prefer HDR formats
+    #[clap(long)]
+    pub hdr: bool,
+
     /// Display debug output
     #[clap(long)]
     pub debug: bool,

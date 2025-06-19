@@ -1,22 +1,16 @@
 mod workaround;
 
 use windows::{
-    Media::Core::{IMediaSource, IMediaSource_Impl},
-    Win32::{
+    core::{implement, Interface, Result, BOOL, GUID}, Media::Core::{IMediaSource, IMediaSource_Impl}, Win32::{
         Foundation::E_NOINTERFACE,
         Media::MediaFoundation::{
-            IMFAttributes, IMFGetService, IMFGetService_Impl, IMFMediaSource, IMFMediaType,
-            MF_E_ATTRIBUTENOTFOUND, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE,
-            MF_MT_FRAME_RATE, MF_MT_FRAME_RATE_RANGE_MAX, MF_MT_FRAME_RATE_RANGE_MIN,
-            MF_MT_FRAME_SIZE, MF_MT_GEOMETRIC_APERTURE, MF_MT_MINIMUM_DISPLAY_APERTURE,
-            MF_MT_PAN_SCAN_APERTURE, MF_MT_PIXEL_ASPECT_RATIO,
+            IMFAttributes, IMFGetService, IMFGetService_Impl, IMFMediaSource, IMFMediaType, MFVideoFormat_P010, MF_E_ATTRIBUTENOTFOUND, MF_E_UNSUPPORTED_SERVICE, MF_MEDIASOURCE_SERVICE, MF_MT_FRAME_RATE, MF_MT_FRAME_RATE_RANGE_MAX, MF_MT_FRAME_RATE_RANGE_MIN, MF_MT_FRAME_SIZE, MF_MT_GEOMETRIC_APERTURE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_PAN_SCAN_APERTURE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE
         },
         System::{
-            Com::StructuredStorage::{PROPVARIANT, PropVariantClear},
+            Com::StructuredStorage::{PropVariantClear, PROPVARIANT},
             Variant::{VT_CLSID, VT_LPWSTR, VT_R8, VT_UI1, VT_UI4, VT_UI8, VT_UNKNOWN, VT_VECTOR},
         },
-    },
-    core::{BOOL, GUID, Interface, Result, implement},
+    }
 };
 
 use self::workaround::get_guid_name_const;
@@ -46,6 +40,74 @@ impl IMFGetService_Impl for CustomSource_Impl {
         }
         Ok(())
     }
+}
+
+pub fn set_hdr_format_as_current(media_source: &IMFMediaSource) -> Result<Option<IMFMediaType>> {
+    let presentation_descriptor = unsafe { media_source.CreatePresentationDescriptor()? };
+
+    // TODO: Check each stream descriptor?
+    let stream_descriptor = unsafe {
+        let mut selected: BOOL = false.into();
+        let mut stream_descriptor = None;
+        presentation_descriptor.GetStreamDescriptorByIndex(
+            0,
+            &mut selected,
+            &mut stream_descriptor,
+        )?;
+        stream_descriptor.unwrap()
+    };
+
+    let handler = unsafe { stream_descriptor.GetMediaTypeHandler()? };
+
+    let num_types = unsafe { handler.GetMediaTypeCount()? };
+
+    let mut best_media_type: Option<IMFMediaType> = None;
+    for i in 0..num_types {
+        let media_type = unsafe { handler.GetMediaTypeByIndex(i)? };
+
+        // Check the subtype for an HDR format 
+        // TODO: Support more formats
+        let subtype_guid = unsafe { media_type.GetGUID(&MF_MT_SUBTYPE)? };
+        let is_hdr_format = subtype_guid == MFVideoFormat_P010;
+
+        if is_hdr_format {
+            let new_media_type = if let Some(previous_media_type) = best_media_type.take() {
+                // Get the resolution for both media types
+                let previous_resolution = get_media_type_resolution(&previous_media_type)?;
+                let current_resolution = get_media_type_resolution(&media_type)?;
+
+                if previous_resolution.0 <= current_resolution.0 && previous_resolution.1 <= current_resolution.1 {
+                    media_type
+                } else {
+                    previous_media_type
+                }
+            } else {
+                media_type
+            };
+            best_media_type = Some(new_media_type);
+        }
+    }
+
+    if let Some(media_type) = best_media_type.as_ref() {
+        unsafe { handler.SetCurrentMediaType(media_type)? };
+    }
+
+    Ok(best_media_type)
+}
+
+fn get_media_type_resolution(media_type: &IMFMediaType) -> Result<(u32, u32)> {
+    let mut variant = PROPVARIANT::default();
+    unsafe {media_type.GetItem(&MF_MT_FRAME_SIZE, Some(&mut variant))? };
+
+    let mut high = 0;
+    let mut low = 0;
+    unpack_2_u32_as_u64(
+        unsafe { variant.Anonymous.Anonymous.Anonymous.uhVal },
+        &mut high,
+        &mut low,
+    );
+
+    Ok((high, low))
 }
 
 // https://learn.microsoft.com/en-us/windows/win32/medfound/how-to-set-the-video-capture-format
@@ -79,7 +141,7 @@ pub fn enum_formats(media_source: &IMFMediaSource) -> Result<()> {
 }
 
 // https://learn.microsoft.com/en-us/windows/win32/medfound/media-type-debugging-code
-fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
+pub fn log_media_type(media_type: &IMFMediaType) -> Result<()> {
     let count = unsafe { media_type.GetCount()? };
 
     if count == 0 {
